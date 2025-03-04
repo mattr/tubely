@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +23,7 @@ type apiConfig struct {
 	s3Region         string
 	s3CfDistribution string
 	port             string
+	s3Client         *s3.Client
 }
 
 type thumbnail struct {
@@ -80,6 +84,15 @@ func main() {
 		log.Fatal("PORT environment variable is not set")
 	}
 
+	s3Config, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithSharedConfigProfile("default"),
+		config.WithRegion(s3Region))
+	if err != nil {
+		log.Fatalf("Couldn't load SDK config: %v", err)
+	}
+
+	client := s3.NewFromConfig(s3Config)
+
 	cfg := apiConfig{
 		db:               db,
 		jwtSecret:        jwtSecret,
@@ -90,6 +103,7 @@ func main() {
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
 		port:             port,
+		s3Client:         client,
 	}
 
 	err = cfg.ensureAssetsDir()
