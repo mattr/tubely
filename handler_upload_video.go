@@ -18,6 +18,16 @@ import (
 	"os/exec"
 )
 
+func processVideoForFastStart(filepath string) (string, error) {
+	outputFilepath := filepath + ".processing"
+	cmd := exec.Command("ffmpeg", "-i", filepath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputFilepath)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	return outputFilepath, nil
+}
+
 func getVideoAspectRatio(filePath string) (string, error) {
 	type videoData struct {
 		Streams []struct {
@@ -87,17 +97,20 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't get file", err)
 		return
 	}
+
 	mediaType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
 	if mediaType != "video/mp4" {
 		respondWithError(w, http.StatusUnsupportedMediaType, "Unsupported media type", err)
 		return
 	}
+
 	tmpFile, err := os.CreateTemp("", "tubely-upload.mp4")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create temp file", err)
 	}
 	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
+
 	n, err := io.Copy(tmpFile, file)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't copy file", err)
@@ -108,6 +121,23 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	tmpFile.Seek(0, io.SeekStart)
 
 	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get aspect ratio", err)
+	}
+
+	processedFileName, err := processVideoForFastStart(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't process video", err)
+	}
+	processedFile, err := os.Open(processedFileName)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't open processed file", err)
+	}
+	defer os.Remove(processedFile.Name())
+	defer processedFile.Close()
+	processedFile.Seek(0, io.SeekStart)
+	io.Copy(tmpFile, processedFile)
+	tmpFile.Seek(0, io.SeekStart)
 
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
